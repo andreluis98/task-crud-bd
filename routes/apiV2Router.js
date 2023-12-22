@@ -2,9 +2,49 @@ const express = require('express');
 const knexConfig = require('../knexfile')[process.env.NODE_ENV || 'development']
 const apiV2Router = express.Router();
 const knex = require('knex')(knexConfig)
+const jwt = require('jsonwebtoken')
 apiV2Router.use(express.json());
 
-apiV2Router.get('/filmes', (req, res) => {
+const checkToken = (req, res, next) => {
+    console.log('Authorization Header:', req.headers['authorization']);
+    const token = req.headers['authorization'] && req.headers['authorization'].split(' ')[1];
+    console.log('Token:', token);
+
+    if (token) {
+        const autoType = req.headers['authorization'].split(' ')[0];
+
+        if (autoType !== 'Bearer') {
+            console.log('Tipo de autenticação inválido');
+            res.status(401).json({ erro: 'Tipo de autenticação inválido' });
+            return;
+        } else {
+            jwt.verify(token, process.env.SECRET_KEY, (err, data) => {
+                if (err) {
+                    console.error('Erro na verificação do token:', err);
+                    res.status(401).json({ erro: 'Token inválido', errorDetails: err });
+                    return;
+                } else {
+                    console.log('Token válido. Dados:', data);
+                    req.token = data;
+                    next();
+                }
+            });
+        }
+    } else {
+        console.log('Token não informado');
+        res.status(401).json({ erro: 'Token não informado' });
+    }
+};
+
+const isAdmin = (req, res, next) => {
+    if (req.token.roles.indexOf('ADMIN') === -1) {
+        res.status(403).json({ erro: 'Acesso Negado' })
+    } else {
+        next()
+    }
+}
+
+apiV2Router.get('/filmes', checkToken, (req, res) => {
     knex('filmes').select('id', 'titulo', 'diretor', 'ano_lancamento', 'avaliacao', 'sinopse')
         .then(dados => res.status(200).json(dados))
         .catch(err => {
@@ -14,7 +54,7 @@ apiV2Router.get('/filmes', (req, res) => {
 })
 
 
-apiV2Router.get('/filmes/:id', (req, res) => {
+apiV2Router.get('/filmes/:id', checkToken, (req, res) => {
     let id = parseInt(req.params.id)
 
     knex('filmes').select('id', 'titulo', 'diretor', 'ano_lancamento', 'avaliacao', 'sinopse').where({ id: id })
@@ -32,7 +72,7 @@ apiV2Router.get('/filmes/:id', (req, res) => {
 })
 
 
-apiV2Router.post('/filmes', (req, res) => {
+apiV2Router.post('/filmes', checkToken, isAdmin, (req, res) => {
     const novoFilme = req.body;
 
     knex('filmes').insert(novoFilme)
@@ -45,7 +85,7 @@ apiV2Router.post('/filmes', (req, res) => {
         });
 });
 
-apiV2Router.put('/filmes/:id', (req, res) => {
+apiV2Router.put('/filmes/:id', checkToken, isAdmin, (req, res) => {
     const id = parseInt(req.params.id);
     const filmeAtualizado = req.body;
 
@@ -60,7 +100,7 @@ apiV2Router.put('/filmes/:id', (req, res) => {
 });
 
 
-apiV2Router.delete('/filmes/:id', (req, res) => {
+apiV2Router.delete('/filmes/:id', checkToken, isAdmin, (req, res) => {
     const id = parseInt(req.params.id);
 
     knex('filmes').where({ id: id }).del()
